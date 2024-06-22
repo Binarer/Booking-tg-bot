@@ -1,0 +1,302 @@
+    /*@Override
+    p  public void onUpdateReceived(@NotNull Update update) {
+        long chatId = 0;
+        long userId = 0;
+        String userName = null;
+        String receivedMessage;
+
+        if (update.hasMessage()) {
+            chatId = update.getMessage().getChatId();
+            userName = update.getMessage().getFrom().getFirstName();
+
+            if (update.getMessage().hasText()) {
+                receivedMessage = update.getMessage().getText();
+                botAnswerUtils(receivedMessage, chatId, userName, null);
+            }
+        } else if (update.hasCallbackQuery()) {
+            chatId = update.getCallbackQuery().getMessage().getChatId();
+            userId = update.getCallbackQuery().getFrom().getId();
+            userName = update.getCallbackQuery().getFrom().getFirstName();
+            receivedMessage = update.getCallbackQuery().getData();
+
+            botAnswerUtils(receivedMessage, chatId, userName, update.getCallbackQuery());
+        }
+    }
+
+
+    private void botAnswerUtils(String receivedMessage, long chatId, String userName, CallbackQuery callbackQuery) {
+        if (callbackQuery != null && receivedMessage.equals("services")) {
+            handleServicesCallback(chatId, callbackQuery);
+        } else if (callbackQuery != null && receivedMessage.startsWith("master:")) {
+            handleMasterCallback(receivedMessage, chatId, callbackQuery);
+        } else if (callbackQuery != null && receivedMessage.matches("\\d+")) {
+            handleServiceCallback(receivedMessage, chatId, callbackQuery);
+        } else {
+            handleCommand(receivedMessage, chatId, userName);
+        }
+    }
+
+    private void handleServicesCallback(long chatId, CallbackQuery callbackQuery) {
+        Iterable<ServiceEntity> services = servicesRepository.findAll();
+        InlineKeyboardMarkup keyboardMarkup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        for (ServiceEntity service : services) {
+            List<InlineKeyboardButton> row = new ArrayList<>();
+            InlineKeyboardButton button = new InlineKeyboardButton();
+            button.setText(service.getName());
+            button.setCallbackData(String.valueOf(service.getId()));
+            row.add(button);
+            rows.add(row);
+        }
+        keyboardMarkup.setKeyboard(rows);
+        SendMessage servicesMessage = new SendMessage();
+        servicesMessage.setChatId(chatId);
+        servicesMessage.setText("Список услуг💫:");
+        servicesMessage.setReplyMarkup(keyboardMarkup);
+        try {
+            execute(servicesMessage);
+            log.info("Services message sent");
+        } catch (TelegramApiException e) {
+            log.error(e.getMessage());
+        }
+        answerCallbackQuery(callbackQuery);
+    }
+
+    private void handleMasterCallback(String receivedMessage, long chatId, CallbackQuery callbackQuery) {
+        int selectedMasterId = Integer.parseInt(receivedMessage.substring(7));
+        MasterEntity selectedMaster = masterRepository.findById(selectedMasterId).orElse(null);
+        if (selectedMaster == null) {
+            SendMessage errorMessage = new SendMessage();
+            errorMessage.setChatId(chatId);
+            errorMessage.setText("Выбранный мастер недоступен.");
+            try {
+                execute(errorMessage);
+                log.info("Error");
+            } catch (TelegramApiException e) {
+                log.error(e.getMessage());
+            }
+        } else {
+            String callbackData = callbackQuery.getData();
+            if (callbackData.startsWith("service:")) {
+                int selectedServiceId = Integer.parseInt(callbackData.substring(8));
+                ServiceEntity selectedService = servicesRepository.findById(selectedServiceId).orElse(null);
+                LocalDate date = LocalDate.now();
+                int page = 0;
+                sendAvailableTimeSlots(chatId, selectedMaster, selectedService, date, page);
+            } else if (callbackData.startsWith("master:")) {
+                int masterId = Integer.parseInt(callbackData.substring(7));
+                MasterEntity master = masterRepository.findById(masterId).orElse(null);
+                if (master == null) {
+                    SendMessage errorMessage = new SendMessage();
+                    errorMessage.setChatId(chatId);
+                    errorMessage.setText("Выбранный мастер недоступен.");
+                    try {
+                        execute(errorMessage);
+                        log.info("Error message sent");
+                    } catch (TelegramApiException e) {
+                        log.error(e.getMessage());
+                    }
+                } else {
+                    ServiceEntity defaultService = servicesRepository.findFirstByOrderByIdAsc().orElse(null);
+                    LocalDate defaultDate = LocalDate.now();
+                    int defaultPage = 0;
+                    sendAvailableTimeSlots(chatId, master, defaultService, defaultDate, defaultPage);
+                }
+            } else {
+                log.error("Invalid callback query data: {}", callbackData);
+            }
+        }
+        answerCallbackQuery(callbackQuery);
+    }
+
+    private void handleServiceCallback(String receivedMessage, long chatId, CallbackQuery callbackQuery) {
+        int selectedServiceId = Integer.parseInt(receivedMessage);
+        ServiceEntity selectedService = servicesRepository.findById(selectedServiceId).orElse(null);
+        if (selectedService == null) {
+            SendMessage errorMessage = new SendMessage();
+            errorMessage.setChatId(chatId);
+            errorMessage.setText("Выбранная услуга недоступна.");
+            try {
+                execute(errorMessage);
+                log.info("Error message sent");
+            } catch (TelegramApiException e) {
+                log.error(e.getMessage());
+            }
+        } else {
+            List<MasterEntity> masters = masterRepository.findByServices(selectedService);
+            InlineKeyboardMarkup keyboardMarkup = new InlineKeyboardMarkup();
+            List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+            for (MasterEntity master : masters) {
+                List<InlineKeyboardButton> row = new ArrayList<>();
+                InlineKeyboardButton button = new InlineKeyboardButton();
+                button.setText(master.getName());
+                button.setCallbackData("master:" + master.getId());
+                row.add(button);
+                rows.add(row);
+            }
+            keyboardMarkup.setKeyboard(rows);
+            SendMessage mastersMessage = new SendMessage();
+            mastersMessage.setChatId(chatId);
+            mastersMessage.setText("Список мастеров готовых взяться за ващи делишки:");
+            mastersMessage.setReplyMarkup(keyboardMarkup);
+            try {
+                execute(mastersMessage);
+                log.info("Masters message sent");
+            } catch (TelegramApiException e) {
+                log.error(e.getMessage());
+            }
+        }
+        answerCallbackQuery(callbackQuery);
+    }
+
+    private void answerCallbackQuery(CallbackQuery callbackQuery) {
+        AnswerCallbackQuery answer = new AnswerCallbackQuery();
+        answer.setCallbackQueryId(callbackQuery.getId());
+        try {
+            execute(answer);
+        } catch (TelegramApiException e) {
+            log.error(e.getMessage());
+        }
+    }
+   }
+    private void handleCommand(String receivedMessage, long chatId, String userName) {
+        switch (receivedMessage) {
+            case "/start" -> startBot(chatId, userName);
+            case "/help" -> sendHelpText(chatId);
+            default -> {
+            }
+        }
+    }
+
+
+    private void startBot(long chatId, String userName) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId);
+        message.setText("Hi, " + userName + "!\nЯ бот барбер шопа Алёнка.\nМогу помочь с бронированием записи для стрижки, окрашивания и прочих услуг.\nЖми скорей кнопку УСЛУГИ и смотри услуги🤡.'");
+        message.setReplyMarkup(Buttons.servicesMarkup());
+        try {
+            execute(message);
+            log.info("Reply sent");
+        } catch (TelegramApiException e) {
+            log.error(e.getMessage());
+        }
+    }
+
+    private void sendHelpText(long chatId) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId);
+        message.setText(BotCommands.HELP_TEXT);
+        try {
+            execute(message);
+            log.info("Reply sent");
+        } catch (TelegramApiException e) {
+            log.error(e.getMessage());
+        }
+    }*/
+
+        /*
+            @Override
+            public void onUpdateReceived(Update update) {
+                if (update.hasMessage() && "/choosedate".equals(update.getMessage().getText())) {
+                    sendDateOptions(update.getMessage().getChatId(), LocalDate.now());
+                } else if (update.hasCallbackQuery()) {
+                    handleCallbackQuery(update.getCallbackQuery());
+                }
+            }
+
+            private void sendDateOptions(long chatId, LocalDate currentDate) {
+                List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+                List<InlineKeyboardButton> row = new ArrayList<>();
+                row.add(InlineKeyboardButton.builder().text("<< prevdate").callbackData("prevdate:" + currentDate.toString()).build());
+                for (int i = 0; i < 3; i++) {
+                    LocalDate date = currentDate.plusDays(i);
+                    String dateString = date.format(dateFormatter);
+                    InlineKeyboardButton button = InlineKeyboardButton.builder().text(dateString).callbackData("date:" + date.toString()).build();
+                    row.add(button);
+                }
+                row.add(InlineKeyboardButton.builder().text("nextdate >>").callbackData("nextdate:" + currentDate.toString()).build());
+                keyboard.add(row);
+                InlineKeyboardMarkup markup = InlineKeyboardMarkup.builder().keyboard(keyboard).build();
+                SendMessage message = SendMessage.builder().chatId(chatId).text("Please choose a date:").replyMarkup(markup).build();
+                try {
+                    execute(message);
+                } catch (TelegramApiException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            private void updateDateOptions(long chatId, int messageId, LocalDate currentDate) {
+                List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+                List<InlineKeyboardButton> row = new ArrayList<>();
+                row.add(InlineKeyboardButton.builder().text("<< prevdate").callbackData("prevdate:" + currentDate.toString()).build());
+                for (int i = 0; i < 3; i++) {
+                    LocalDate date = currentDate.plusDays(i);
+                    String dateString = date.format(dateFormatter);
+                    InlineKeyboardButton button = InlineKeyboardButton.builder().text(dateString).callbackData("date:" + date.toString()).build();
+                    row.add(button);
+                }
+                row.add(InlineKeyboardButton.builder().text("nextdate >>").callbackData("nextdate:" + currentDate.toString()).build());
+                keyboard.add(row);
+                InlineKeyboardMarkup markup = InlineKeyboardMarkup.builder().keyboard(keyboard).build();
+                EditMessageReplyMarkup message = EditMessageReplyMarkup.builder().chatId(chatId).messageId(messageId).replyMarkup(markup).build();
+                try {
+                    execute(message);
+                } catch (TelegramApiException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            private void sendTimeOptions(long chatId, int messageId, LocalDate date, LocalTime currentTime) {
+                List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+                List<InlineKeyboardButton> row = new ArrayList<>();
+                row.add(InlineKeyboardButton.builder().text("<< prevtime").callbackData("prevtime:" + date.toString() + "T" + currentTime.toString()).build());
+                for (int i = 0; i < 3; i++) {
+                    LocalTime time = currentTime.plusHours(i);
+                    String timeString = time.format(timeFormatter);
+                    InlineKeyboardButton button = InlineKeyboardButton.builder().text(timeString).callbackData("time:" + date.toString() + "T" + time.toString()).build();
+                    row.add(button);
+                }
+                row.add(InlineKeyboardButton.builder().text("nexttime >>").callbackData("nexttime:" + date.toString() + "T" + currentTime.toString()).build());
+                keyboard.add(row);
+                InlineKeyboardMarkup markup = InlineKeyboardMarkup.builder().keyboard(keyboard).build();
+                EditMessageReplyMarkup message = EditMessageReplyMarkup.builder().chatId(chatId).messageId(messageId).replyMarkup(markup).build();
+                try {
+                    execute(message);
+                } catch (TelegramApiException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            private void handleCallbackQuery(CallbackQuery callbackQuery) {
+                String data = callbackQuery.getData();
+                if (data.startsWith("date:")) {
+                    LocalDate date = LocalDate.parse(data.substring(5));
+                    sendTimeOptions(callbackQuery.getMessage().getChatId(), callbackQuery.getMessage().getMessageId(), date, LocalTime.now());
+                } else if (data.startsWith("time:")) {
+                    LocalDate date = LocalDate.parse(data.substring(5, 15));
+                    LocalTime time = LocalTime.parse(data.substring(16));
+                    long chatId = callbackQuery.getMessage().getChatId();
+                    int messageId = callbackQuery.getMessage().getMessageId();
+                    String text = "You have chosen the date and time: " + date.format(dateFormatter) + " " + time.format(timeFormatter);
+                    EditMessageText message = EditMessageText.builder().chatId(chatId).messageId(messageId).text(text).build();
+                    try {
+                        execute(message);
+                    } catch (TelegramApiException e) {
+                        e.printStackTrace();
+                    }
+                } else if (data.startsWith("prevdate:")) {
+                    LocalDate currentDate = LocalDate.parse(data.substring(9));
+                    updateDateOptions(callbackQuery.getMessage().getChatId(), callbackQuery.getMessage().getMessageId(), currentDate.minusDays(3));
+                } else if (data.startsWith("nextdate:")) {
+                    LocalDate currentDate = LocalDate.parse(data.substring(9));
+                    updateDateOptions(callbackQuery.getMessage().getChatId(), callbackQuery.getMessage().getMessageId(), currentDate.plusDays(3));
+                } else if (data.startsWith("prevtime:")) {
+                    LocalDate date = LocalDate.parse(data.substring(9, 19));
+                    LocalTime currentTime = LocalTime.parse(data.substring(20));
+                    sendTimeOptions(callbackQuery.getMessage().getChatId(), callbackQuery.getMessage().getMessageId(), date, currentTime.minusHours(3));
+                } else if (data.startsWith("nexttime:")) {
+                    LocalDate date = LocalDate.parse(data.substring(9, 19));
+                    LocalTime currentTime = LocalTime.parse(data.substring(20));
+                    sendTimeOptions(callbackQuery.getMessage().getChatId(), callbackQuery.getMessage().getMessageId(), date, currentTime.plusHours(3));
+                }
+            }*/
